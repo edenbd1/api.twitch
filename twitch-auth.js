@@ -47,9 +47,6 @@ app.get('/callback', async (req, res) => {
         });
 
         const twitchUser = twitchUserResponse.data.data[0];
-        
-        // Appel à l'API Wavetip
-        const wavetipResponse = await axios.get(`${config.WAVETIP_API_URL}/streamer/${twitchUser.login}`);
 
         // Affichage des données sur la page
         res.send(`
@@ -118,11 +115,6 @@ app.get('/callback', async (req, res) => {
                     <div class="data-section">
                         <h2>Données Twitch</h2>
                         <pre>${JSON.stringify(twitchUser, null, 2)}</pre>
-                    </div>
-
-                    <div class="data-section">
-                        <h2>Données Wavetip</h2>
-                        <pre>${JSON.stringify(wavetipResponse.data, null, 2)}</pre>
                     </div>
 
                     <a href="/" class="back-button">Retour à l'accueil</a>
