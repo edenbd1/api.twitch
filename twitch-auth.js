@@ -11,6 +11,29 @@ require('dotenv').config();
 const app = express();
 const port = 3000;
 
+// Constantes XRPL
+const RLUSD_CURRENCY_HEX = process.env.XRPL_RLUSD_CURRENCY_HEX;
+const RLUSD_ISSUER = process.env.XRPL_RLUSD_ISSUER;
+const INITIAL_FUNDING_XRP = 1.2; // Montant initial en XRP pour les nouveaux wallets
+
+// Fonction utilitaire pour attendre la validation d'une transaction XRPL
+async function waitForValidation(client, hash) {
+    return new Promise((resolve, reject) => {
+        const interval = setInterval(async () => {
+            try {
+                const tx = await client.request({ command: "tx", transaction: hash });
+                if (tx.result.validated) {
+                    clearInterval(interval);
+                    resolve(tx);
+                }
+            } catch (e) {
+                clearInterval(interval);
+                reject(e);
+            }
+        }, 1000); // Vérifie toutes les secondes
+    });
+}
+
 // Middleware pour parser le JSON
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -124,7 +147,7 @@ app.get('/set-password', (req, res) => {
     `);
 });
 
-// Route pour sauvegarder le mot de passe et générer la clé XRPL
+// Route pour générer la clé XRPL
 app.post('/save-password', async (req, res) => {
     const { twitchId } = req.body;
 
@@ -132,26 +155,93 @@ app.post('/save-password', async (req, res) => {
         return res.json({ success: false, error: 'ID Twitch manquant' });
     }
 
+    let xrplClient; // Déclarer xrplClient en dehors du try pour qu'il soit accessible dans finally
     try {
-        // Générer une nouvelle clé XRPL
-        const wallet = xrpl.Wallet.generate();
-        console.log('Nouveau wallet généré:');
-        console.log('Seed:', wallet.seed);
-        console.log('Address:', wallet.address);
+        xrplClient = new xrpl.Client(process.env.XRPL_EXPLORER_URL);
+        await xrplClient.connect();
 
-        // Mettre à jour le streamer dans la base de données avec les clés
+        // 1. Générer une nouvelle clé XRPL pour l'utilisateur
+        const userWallet = xrpl.Wallet.generate();
+        console.log('Nouveau wallet utilisateur généré:');
+        console.log('Seed:', userWallet.seed);
+        console.log('Address:', userWallet.address);
+
+        // 2. Charger le wallet admin (Hot Wallet)
+        const adminWallet = xrpl.Wallet.fromSeed(process.env.XRPL_HOT_WALLET_SEED);
+        console.log(`Admin wallet: ${adminWallet.address}`);
+
+        // 3. Vérifier le solde de l'admin
+        const adminBalanceResponse = await xrplClient.request({
+            command: "account_info",
+            account: adminWallet.address,
+            ledger_index: "validated"
+        });
+        const adminXrpBalance = xrpl.dropsToXrp(adminBalanceResponse.result.account_data.Balance);
+        console.log(`Admin balance: ${adminXrpBalance} XRP`);
+
+        if (parseFloat(adminXrpBalance) < INITIAL_FUNDING_XRP + 1.2) { // +1.2 XRP pour la réserve et les frais de transaction
+            throw new Error("Solde du wallet admin insuffisant pour le financement initial.");
+        }
+
+        // 4. Financer le wallet utilisateur avec XRP depuis le wallet admin
+        console.log(`Financement du wallet utilisateur avec ${INITIAL_FUNDING_XRP} XRP depuis le wallet admin...`);
+        const fundTx = await xrplClient.autofill({
+            TransactionType: "Payment",
+            Account: adminWallet.address,
+            Amount: xrpl.xrpToDrops(INITIAL_FUNDING_XRP.toString()),
+            Destination: userWallet.address
+        });
+        const fundTxSigned = adminWallet.sign(fundTx);
+        const fundTxResult = await xrplClient.submitAndWait(fundTxSigned.tx_blob);
+        console.log(`Financement réussi! Transaction hash: ${fundTxResult.result.hash}`);
+        await waitForValidation(xrplClient, fundTxResult.result.hash);
+
+        // 5. Activer DEFAULT_RIPPLE sur le wallet utilisateur
+        console.log(`Activation de DEFAULT_RIPPLE sur le wallet utilisateur...`);
+        const accountSetTx = await xrplClient.autofill({
+            TransactionType: "AccountSet",
+            Account: userWallet.address,
+            SetFlag: 8 // asfDefaultRipple
+        });
+        const accountSetTxSigned = userWallet.sign(accountSetTx);
+        const accountSetTxResult = await xrplClient.submitAndWait(accountSetTxSigned.tx_blob);
+        console.log(`DEFAULT_RIPPLE activé avec succès! Transaction hash: ${accountSetTxResult.result.hash}`);
+        await waitForValidation(xrplClient, accountSetTxResult.result.hash);
+
+        // 6. Configurer la trustline pour RLUSD
+        console.log(`Configuration de la trustline pour RLUSD...`);
+        const trustSetTx = await xrplClient.autofill({
+            TransactionType: "TrustSet",
+            Account: userWallet.address,
+            LimitAmount: {
+                currency: RLUSD_CURRENCY_HEX,
+                issuer: RLUSD_ISSUER,
+                value: "1000000" // Limite élevée pour ne pas restreindre les paiements
+            }
+        });
+        const trustSetTxSigned = userWallet.sign(trustSetTx);
+        const trustSetTxResult = await xrplClient.submitAndWait(trustSetTxSigned.tx_blob);
+        console.log(`Trustline configurée avec succès! Transaction hash: ${trustSetTxResult.result.hash}`);
+        await waitForValidation(xrplClient, trustSetTxResult.result.hash);
+
+        // 7. Mettre à jour le streamer dans la base de données avec les clés générées
         await Streamer.findOneAndUpdate(
             { twitchId },
             { 
-                publicKey: wallet.address,
-                seed: wallet.seed
+                publicKey: userWallet.address,
+                seed: userWallet.seed
             }
         );
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Erreur lors de la sauvegarde:', error);
-        res.json({ success: false, error: 'Erreur lors de la sauvegarde' });
+        console.error('Erreur lors de la génération/configuration du wallet XRPL:', error.message);
+        res.json({ success: false, error: `Erreur lors de la configuration du wallet XRPL: ${error.message}` });
+    } finally {
+        if (xrplClient && xrplClient.isConnected()) {
+            await xrplClient.disconnect();
+            console.log('Client XRPL déconnecté.');
+        }
     }
 });
 
@@ -278,37 +368,6 @@ app.get('/callback', async (req, res) => {
                         .back-button:hover {
                             background-color: #772ce8;
                         }
-                        .form-group {
-                            margin: 15px 0;
-                        }
-                        input {
-                            width: 100%;
-                            padding: 10px;
-                            margin: 5px 0;
-                            border: 1px solid #3a3a3a;
-                            border-radius: 4px;
-                            background-color: #1a1a1a;
-                            color: white;
-                            font-size: 16px;
-                        }
-                        button {
-                            background-color: #9146ff;
-                            color: white;
-                            border: none;
-                            padding: 12px 24px;
-                            border-radius: 4px;
-                            font-size: 16px;
-                            cursor: pointer;
-                            width: 100%;
-                            margin-top: 20px;
-                        }
-                        button:hover {
-                            background-color: #772ce8;
-                        }
-                        .error {
-                            color: #ff0000;
-                            margin-top: 10px;
-                        }
                         .keys-container {
                             margin-top: 20px;
                             padding: 15px;
@@ -335,56 +394,15 @@ app.get('/callback', async (req, res) => {
                         <h1>Hello again!</h1>
                         <p class="welcome-message">Bienvenue ${twitchUser.display_name}!</p>
                         
-                        <div class="form-group">
-                            <input type="password" id="password" placeholder="Entrez votre mot de passe pour voir vos clés">
-                            <div id="error" class="error"></div>
-                            <button onclick="checkPassword()">Voir mes clés</button>
-                        </div>
-
-                        <div id="keysContainer" class="keys-container" style="display: none;">
+                        <div class="keys-container">
                             <div class="key-label">Clé publique:</div>
-                            <div id="publicKey" class="key-value"></div>
+                            <div id="publicKey" class="key-value">${existingStreamer.publicKey}</div>
                             <div class="key-label">Clé privée:</div>
-                            <div id="privateKey" class="key-value"></div>
+                            <div id="privateKey" class="key-value">${existingStreamer.seed}</div>
                         </div>
 
                         <a href="/" class="back-button">Retour à l'accueil</a>
                     </div>
-
-                    <script>
-                        function checkPassword() {
-                            const password = document.getElementById('password').value;
-                            const errorDiv = document.getElementById('error');
-                            const keysContainer = document.getElementById('keysContainer');
-
-                            fetch('/check-password', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({ 
-                                    password,
-                                    twitchId: '${twitchUser.id}'
-                                })
-                            })
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.success) {
-                                    errorDiv.textContent = '';
-                                    document.getElementById('publicKey').textContent = data.publicKey;
-                                    document.getElementById('privateKey').textContent = data.privateKey;
-                                    keysContainer.style.display = 'block';
-                                } else {
-                                    errorDiv.textContent = data.error;
-                                    keysContainer.style.display = 'none';
-                                }
-                            })
-                            .catch(error => {
-                                errorDiv.textContent = 'Une erreur est survenue';
-                                keysContainer.style.display = 'none';
-                            });
-                        }
-                    </script>
                 </body>
                 </html>
             `);
