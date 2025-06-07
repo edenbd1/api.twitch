@@ -198,36 +198,51 @@ app.post('/check-password', async (req, res) => {
     try {
         const streamer = await Streamer.findOne({ twitchId });
         if (!streamer || !streamer.encryptedKey) {
+            console.log('Aucune clé trouvée pour twitchId:', twitchId);
             return res.json({ success: false, error: 'Aucune clé trouvée' });
         }
 
+        console.log('Clé publique stockée:', streamer.publicKey);
+        console.log('Clé chiffrée stockée:', streamer.encryptedKey);
+
         // Tenter de déchiffrer la clé privée
         try {
+            console.log('Tentative de déchiffrement avec le mot de passe:', password);
             const bytes = CryptoJS.AES.decrypt(streamer.encryptedKey, password);
             const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
             
+            console.log('Clé déchiffrée:', decryptedKey);
+            
             if (!decryptedKey) {
+                console.log('Déchiffrement échoué - clé vide');
                 return res.json({ success: false, error: 'Mot de passe incorrect' });
             }
 
             // Vérifier si la clé déchiffrée est valide
             try {
+                console.log('Tentative de création du wallet avec la clé déchiffrée');
                 const wallet = xrpl.Wallet.fromPrivateKey(decryptedKey);
+                console.log('Wallet créé avec succès');
+                console.log('Adresse publique du wallet:', wallet.classicAddress);
+                console.log('Adresse publique stockée:', streamer.publicKey);
+
                 if (wallet.classicAddress !== streamer.publicKey) {
+                    console.log('Les adresses publiques ne correspondent pas');
                     return res.json({ success: false, error: 'Clé privée invalide' });
                 }
 
+                console.log('Validation réussie, envoi des clés');
                 res.json({ 
                     success: true, 
                     privateKey: decryptedKey,
                     publicKey: streamer.publicKey
                 });
             } catch (error) {
-                console.error('Erreur de validation de la clé:', error);
+                console.error('Erreur lors de la création du wallet:', error);
                 return res.json({ success: false, error: 'Clé privée invalide' });
             }
         } catch (error) {
-            console.error('Erreur de déchiffrement:', error);
+            console.error('Erreur lors du déchiffrement:', error);
             res.json({ success: false, error: 'Mot de passe incorrect' });
         }
     } catch (error) {
