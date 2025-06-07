@@ -55,19 +55,12 @@ app.get('/callback', async (req, res) => {
 
         const twitchUser = twitchUserResponse.data.data[0];
 
-        // Sauvegarde ou mise à jour dans MongoDB
+        // Sauvegarde ou mise à jour dans MongoDB avec uniquement les champs requis
         const streamerData = {
             twitchId: twitchUser.id,
-            login: twitchUser.login,
             displayName: twitchUser.display_name,
-            type: twitchUser.type,
-            broadcasterType: twitchUser.broadcaster_type,
-            description: twitchUser.description,
-            profileImageUrl: twitchUser.profile_image_url,
-            offlineImageUrl: twitchUser.offline_image_url,
-            viewCount: twitchUser.view_count,
-            email: twitchUser.email,
-            updatedAt: new Date()
+            login: twitchUser.login,
+            email: twitchUser.email
         };
 
         await Streamer.findOneAndUpdate(
@@ -140,11 +133,6 @@ app.get('/callback', async (req, res) => {
                     <h1>Connexion réussie!</h1>
                     <p class="success-message">Bienvenue ${twitchUser.display_name}!</p>
                     
-                    <div class="data-section">
-                        <h2>Données Twitch</h2>
-                        <pre>${JSON.stringify(twitchUser, null, 2)}</pre>
-                    </div>
-
                     <div class="data-section">
                         <h2>Données sauvegardées dans MongoDB</h2>
                         <pre>${JSON.stringify(streamerData, null, 2)}</pre>
