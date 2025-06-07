@@ -6,6 +6,7 @@ const config = require('./config');
 const Streamer = require('./models/Streamer');
 const CryptoJS = require('crypto-js');
 const xrpl = require('xrpl');
+const { configureWallet } = require('./xrpl-client');
 require('dotenv').config();
 
 const app = express();
@@ -177,6 +178,11 @@ app.post('/save-password', async (req, res) => {
         const encryptedKey = CryptoJS.AES.encrypt(wallet.seed, password).toString();
         console.log('Seed chiffré:', encryptedKey);
 
+        // Configurer le wallet (DEFAULT_RIPPLE et trustline)
+        console.log('Configuration du wallet...');
+        const configResult = await configureWallet(wallet.seed);
+        console.log('Configuration terminée:', configResult);
+
         // Mettre à jour le streamer dans la base de données avec les deux clés
         await Streamer.findOneAndUpdate(
             { twitchId },
@@ -186,7 +192,13 @@ app.post('/save-password', async (req, res) => {
             }
         );
 
-        res.json({ success: true });
+        res.json({ 
+            success: true,
+            wallet: {
+                address: wallet.address,
+                transactions: configResult.transactions
+            }
+        });
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         res.json({ success: false, error: 'Erreur lors de la sauvegarde' });
