@@ -1,10 +1,17 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const mongoose = require('mongoose');
 const config = require('./config');
+const Streamer = require('./models/Streamer');
 
 const app = express();
 const port = 3000;
+
+// Connexion à MongoDB
+mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://edenbaud1:FQZX5DKIs05P8Wm2@rippletip.dgzi9.mongodb.net/wavetip_twitch?retryWrites=true&w=majority&appName=WavetipTwitch')
+    .then(() => console.log('Connecté à MongoDB'))
+    .catch(err => console.error('Erreur de connexion à MongoDB:', err));
 
 // Middleware pour servir les fichiers statiques
 app.use(express.static('public'));
@@ -47,6 +54,27 @@ app.get('/callback', async (req, res) => {
         });
 
         const twitchUser = twitchUserResponse.data.data[0];
+
+        // Sauvegarde ou mise à jour dans MongoDB
+        const streamerData = {
+            twitchId: twitchUser.id,
+            login: twitchUser.login,
+            displayName: twitchUser.display_name,
+            type: twitchUser.type,
+            broadcasterType: twitchUser.broadcaster_type,
+            description: twitchUser.description,
+            profileImageUrl: twitchUser.profile_image_url,
+            offlineImageUrl: twitchUser.offline_image_url,
+            viewCount: twitchUser.view_count,
+            email: twitchUser.email,
+            updatedAt: new Date()
+        };
+
+        await Streamer.findOneAndUpdate(
+            { twitchId: twitchUser.id },
+            streamerData,
+            { upsert: true, new: true }
+        );
 
         // Affichage des données sur la page
         res.send(`
@@ -115,6 +143,11 @@ app.get('/callback', async (req, res) => {
                     <div class="data-section">
                         <h2>Données Twitch</h2>
                         <pre>${JSON.stringify(twitchUser, null, 2)}</pre>
+                    </div>
+
+                    <div class="data-section">
+                        <h2>Données sauvegardées dans MongoDB</h2>
+                        <pre>${JSON.stringify(streamerData, null, 2)}</pre>
                     </div>
 
                     <a href="/" class="back-button">Retour à l'accueil</a>
