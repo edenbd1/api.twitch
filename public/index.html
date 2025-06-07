@@ -46,61 +46,11 @@
             width: 24px;
             height: 24px;
         }
-        .search-section {
-            margin: 20px 0;
-            padding: 20px;
-            background-color: #2a2a2a;
-            border-radius: 4px;
-        }
-        .search-input {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            border: 1px solid #3a3a3a;
-            border-radius: 4px;
-            background-color: #1a1a1a;
-            color: white;
-            font-size: 16px;
-        }
-        .search-button {
-            background-color: #9146ff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: background-color 0.3s;
-        }
-        .search-button:hover {
-            background-color: #772ce8;
-        }
-        .result {
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 4px;
-            font-weight: bold;
-            word-break: break-all;
-        }
-        .result.email {
-            color: #00ff00;
-        }
-        .result.false {
-            color: #ff0000;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Connexion avec Twitch</h1>
-        
-        <div class="search-section">
-            <h2>Rechercher un streamer</h2>
-            <input type="text" id="streamerSearch" class="search-input" placeholder="Nom du streamer">
-            <button onclick="searchStreamer()" class="search-button">Rechercher</button>
-            <div id="searchResult" class="result"></div>
-        </div>
-
         <a href="/auth" class="twitch-button">
             <svg class="twitch-icon" viewBox="0 0 24 24" fill="white">
                 <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/>
@@ -108,29 +58,5 @@
             Se connecter avec Twitch
         </a>
     </div>
-
-    <script>
-        async function searchStreamer() {
-            const streamerName = document.getElementById('streamerSearch').value;
-            const resultDiv = document.getElementById('searchResult');
-            
-            if (!streamerName) {
-                resultDiv.textContent = 'Veuillez entrer un nom de streamer';
-                resultDiv.className = 'result false';
-                return;
-            }
-
-            try {
-                const response = await fetch(`/search-streamer?name=${encodeURIComponent(streamerName)}`);
-                const data = await response.text();
-                
-                resultDiv.textContent = data;
-                resultDiv.className = data === "false" ? 'result false' : 'result email';
-            } catch (error) {
-                resultDiv.textContent = 'false';
-                resultDiv.className = 'result false';
-            }
-        }
-    </script>
 </body>
 </html> 

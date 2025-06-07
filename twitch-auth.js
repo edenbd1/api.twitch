@@ -21,33 +21,6 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Route pour rechercher un streamer
-app.get('/search-streamer', async (req, res) => {
-    const { name } = req.query;
-    
-    if (!name) {
-        return res.json("false");
-    }
-
-    try {
-        const streamer = await Streamer.findOne({
-            $or: [
-                { login: { $regex: new RegExp(name, 'i') } },
-                { displayName: { $regex: new RegExp(name, 'i') } }
-            ]
-        });
-
-        if (streamer) {
-            res.json(streamer.email);
-        } else {
-            res.json("false");
-        }
-    } catch (error) {
-        console.error('Erreur de recherche:', error);
-        res.status(500).json("false");
-    }
-});
-
 // Route pour démarrer l'authentification
 app.get('/auth', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${config.TWITCH_CLIENT_ID}&redirect_uri=${config.REDIRECT_URI}&response_type=code&scope=user:read:email`;
