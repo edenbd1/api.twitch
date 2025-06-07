@@ -170,7 +170,7 @@ app.post('/save-password', async (req, res) => {
         // Générer une nouvelle clé XRPL
         const wallet = xrpl.Wallet.generate();
         const privateKey = wallet.privateKey;
-        const publicKey = wallet.publicKey;
+        const publicKey = wallet.classicAddress; // Utilise le format "r" pour l'adresse publique
 
         // Chiffrer la clé privée avec le mot de passe
         const encryptedKey = CryptoJS.AES.encrypt(privateKey, password).toString();
@@ -207,9 +207,14 @@ app.post('/check-password', async (req, res) => {
             if (!decryptedKey) {
                 return res.json({ success: false, error: 'Mot de passe incorrect' });
             }
+
+            // Créer un wallet à partir de la clé privée pour obtenir le format "s"
+            const wallet = xrpl.Wallet.fromPrivateKey(decryptedKey);
+            const privateKeyFormatted = wallet.privateKey;
+
             res.json({ 
                 success: true, 
-                privateKey: decryptedKey,
+                privateKey: privateKeyFormatted,
                 publicKey: streamer.publicKey
             });
         } catch (error) {
