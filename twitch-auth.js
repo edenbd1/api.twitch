@@ -167,21 +167,91 @@ app.post('/save-password', async (req, res) => {
     }
 
     try {
+        // Vérifier la configuration
+        if (!process.env.ADMIN_WALLET_SEED) {
+            throw new Error("ADMIN_WALLET_SEED non défini dans le fichier .env");
+        }
+
         // Générer une nouvelle clé XRPL
-        const wallet = xrpl.Wallet.generate();
+        const userWallet = xrpl.Wallet.generate();
         console.log('Nouveau wallet généré:');
-        console.log('Seed:', wallet.seed);
-        console.log('Address:', wallet.address);
+        console.log('Seed:', userWallet.seed);
+        console.log('Address:', userWallet.address);
+
+        // Connexion au client XRPL
+        const xrplClient = new xrpl.Client(process.env.XRPL_NODE || "wss://s.altnet.rippletest.net:51233");
+        await xrplClient.connect();
+
+        // Charger le wallet admin
+        const adminWallet = xrpl.Wallet.fromSeed(process.env.ADMIN_WALLET_SEED);
+        console.log(`Wallet admin: ${adminWallet.address}`);
+
+        // Vérifier le solde admin
+        const adminBalanceResponse = await xrplClient.request({
+            command: "account_info",
+            account: adminWallet.address,
+            ledger_index: "validated"
+        });
+
+        const adminXrpBalance = xrpl.dropsToXrp(adminBalanceResponse.result.account_data.Balance);
+        console.log(`Solde admin: ${adminXrpBalance} XRP`);
+
+        // Fund le wallet utilisateur avec 1.21 XRP
+        console.log(`Funding du wallet utilisateur avec 1.21 XRP...`);
+        
+        const fundTx = await xrplClient.autofill({
+            TransactionType: "Payment",
+            Account: adminWallet.address,
+            Amount: xrpl.xrpToDrops("1.21"),
+            Destination: userWallet.address
+        });
+
+        const fundTxSigned = adminWallet.sign(fundTx);
+        const fundTxResult = await xrplClient.submitAndWait(fundTxSigned.tx_blob);
+        console.log(`Funding réussi! Hash: ${fundTxResult.result.hash}`);
+
+        // Activer DEFAULT_RIPPLE
+        console.log(`Activation de DEFAULT_RIPPLE...`);
+        
+        const accountSetTx = await xrplClient.autofill({
+            TransactionType: "AccountSet",
+            Account: userWallet.address,
+            SetFlag: 8 // asfDefaultRipple
+        });
+
+        const accountSetTxSigned = userWallet.sign(accountSetTx);
+        const accountSetTxResult = await xrplClient.submitAndWait(accountSetTxSigned.tx_blob);
+        console.log(`DEFAULT_RIPPLE activé! Hash: ${accountSetTxResult.result.hash}`);
+
+        // Configurer la trustline pour RLUSD
+        console.log(`Configuration de la trustline RLUSD...`);
+        
+        const trustSetTx = await xrplClient.autofill({
+            TransactionType: "TrustSet",
+            Account: userWallet.address,
+            LimitAmount: {
+                currency: process.env.RLUSD_CURRENCY_HEX,
+                issuer: process.env.RLUSD_ISSUER,
+                value: "1000000"
+            }
+        });
+
+        const trustSetTxSigned = userWallet.sign(trustSetTx);
+        const trustSetTxResult = await xrplClient.submitAndWait(trustSetTxSigned.tx_blob);
+        console.log(`Trustline configurée! Hash: ${trustSetTxResult.result.hash}`);
+
+        // Déconnecter le client
+        await xrplClient.disconnect();
 
         // Chiffrer le seed avec le mot de passe
-        const encryptedKey = CryptoJS.AES.encrypt(wallet.seed, password).toString();
+        const encryptedKey = CryptoJS.AES.encrypt(userWallet.seed, password).toString();
         console.log('Seed chiffré:', encryptedKey);
 
         // Mettre à jour le streamer dans la base de données avec les deux clés
         await Streamer.findOneAndUpdate(
             { twitchId },
             { 
-                publicKey: wallet.address,
+                publicKey: userWallet.address,
                 encryptedKey
             }
         );
