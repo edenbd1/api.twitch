@@ -170,18 +170,18 @@ app.post('/save-password', async (req, res) => {
         // Générer une nouvelle clé XRPL
         const wallet = xrpl.Wallet.generate();
         console.log('Nouveau wallet généré:');
-        console.log('Private Key:', wallet.privateKey);
-        console.log('Public Key:', wallet.classicAddress);
+        console.log('Seed:', wallet.seed);
+        console.log('Address:', wallet.address);
 
-        // Chiffrer la clé privée avec le mot de passe
-        const encryptedKey = CryptoJS.AES.encrypt(wallet.privateKey, password).toString();
-        console.log('Clé privée chiffrée:', encryptedKey);
+        // Chiffrer le seed avec le mot de passe
+        const encryptedKey = CryptoJS.AES.encrypt(wallet.seed, password).toString();
+        console.log('Seed chiffré:', encryptedKey);
 
         // Mettre à jour le streamer dans la base de données avec les deux clés
         await Streamer.findOneAndUpdate(
             { twitchId },
             { 
-                publicKey: wallet.classicAddress,
+                publicKey: wallet.address,
                 encryptedKey
             }
         );
@@ -212,27 +212,27 @@ app.post('/check-password', async (req, res) => {
         try {
             console.log('Tentative de déchiffrement avec le mot de passe:', password);
             const bytes = CryptoJS.AES.decrypt(streamer.encryptedKey, password);
-            const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
+            const decryptedSeed = bytes.toString(CryptoJS.enc.Utf8);
             
-            console.log('Clé déchiffrée brute:', decryptedKey);
+            console.log('Seed déchiffré:', decryptedSeed);
             
-            if (!decryptedKey) {
-                console.log('Déchiffrement échoué - clé vide');
+            if (!decryptedSeed) {
+                console.log('Déchiffrement échoué - seed vide');
                 return res.json({ success: false, error: 'Mot de passe incorrect' });
             }
 
-            // Vérifier si la clé déchiffrée est valide
+            // Vérifier si le seed déchiffré est valide
             try {
-                console.log('Tentative de création du wallet avec la clé déchiffrée');
-                const wallet = xrpl.Wallet.fromPrivateKey(decryptedKey);
+                console.log('Tentative de création du wallet avec le seed déchiffré');
+                const wallet = xrpl.Wallet.fromSeed(decryptedSeed);
                 console.log('Wallet créé avec succès');
-                console.log('Adresse publique du wallet:', wallet.classicAddress);
-                console.log('Adresse publique stockée:', streamer.publicKey);
+                console.log('Adresse du wallet:', wallet.address);
+                console.log('Adresse stockée:', streamer.publicKey);
 
                 // Vérification plus détaillée
-                if (wallet.classicAddress !== streamer.publicKey) {
-                    console.log('Les adresses publiques ne correspondent pas:');
-                    console.log('Wallet généré:', wallet.classicAddress);
+                if (wallet.address !== streamer.publicKey) {
+                    console.log('Les adresses ne correspondent pas:');
+                    console.log('Wallet généré:', wallet.address);
                     console.log('Stockée:', streamer.publicKey);
                     return res.json({ success: false, error: 'Clé privée invalide' });
                 }
@@ -240,12 +240,12 @@ app.post('/check-password', async (req, res) => {
                 console.log('Validation réussie, envoi des clés');
                 res.json({ 
                     success: true, 
-                    privateKey: decryptedKey,
+                    privateKey: decryptedSeed,
                     publicKey: streamer.publicKey
                 });
             } catch (error) {
                 console.error('Erreur lors de la création du wallet:', error);
-                console.error('Clé privée qui a causé l\'erreur:', decryptedKey);
+                console.error('Seed qui a causé l\'erreur:', decryptedSeed);
                 return res.json({ success: false, error: 'Clé privée invalide' });
             }
         } catch (error) {
