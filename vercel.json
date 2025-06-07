@@ -2,14 +2,14 @@
     "version": 2,
     "builds": [
         {
-            "src": "twitch-auth.js",
+            "src": "api/index.js",
             "use": "@vercel/node"
         }
     ],
     "routes": [
         {
             "src": "/(.*)",
-            "dest": "twitch-auth.js"
+            "dest": "/api/index.js"
         }
     ]
 } 

@@ -3,14 +3,13 @@ const axios = require('axios');
 const config = require('./config');
 
 const app = express();
-const port = 3000;
 
 // Middleware pour servir les fichiers statiques
 app.use(express.static('public'));
 
 // Route principale
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile('index.html', { root: './public' });
 });
 
 // Route pour démarrer l'authentification
@@ -185,6 +184,5 @@ app.get('/callback', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`Serveur démarré sur http://localhost:${port}`);
-}); 
+// Export pour Vercel
+module.exports = app; 
