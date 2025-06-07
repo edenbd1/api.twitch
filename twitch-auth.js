@@ -169,8 +169,8 @@ app.post('/save-password', async (req, res) => {
     try {
         // Générer une nouvelle clé XRPL
         const wallet = xrpl.Wallet.generate();
-        const privateKey = wallet.privateKey;
-        const publicKey = wallet.classicAddress; // Utilise le format "r" pour l'adresse publique
+        const privateKey = wallet.privateKey; // Format "s..."
+        const publicKey = wallet.classicAddress; // Format "r..."
 
         // Chiffrer la clé privée avec le mot de passe
         const encryptedKey = CryptoJS.AES.encrypt(privateKey, password).toString();
@@ -203,21 +203,31 @@ app.post('/check-password', async (req, res) => {
 
         // Tenter de déchiffrer la clé privée
         try {
-            const decryptedKey = CryptoJS.AES.decrypt(streamer.encryptedKey, password).toString(CryptoJS.enc.Utf8);
+            const bytes = CryptoJS.AES.decrypt(streamer.encryptedKey, password);
+            const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
+            
             if (!decryptedKey) {
                 return res.json({ success: false, error: 'Mot de passe incorrect' });
             }
 
-            // Créer un wallet à partir de la clé privée pour obtenir le format "s"
-            const wallet = xrpl.Wallet.fromPrivateKey(decryptedKey);
-            const privateKeyFormatted = wallet.privateKey;
+            // Vérifier si la clé déchiffrée est valide
+            try {
+                const wallet = xrpl.Wallet.fromPrivateKey(decryptedKey);
+                if (wallet.classicAddress !== streamer.publicKey) {
+                    return res.json({ success: false, error: 'Clé privée invalide' });
+                }
 
-            res.json({ 
-                success: true, 
-                privateKey: privateKeyFormatted,
-                publicKey: streamer.publicKey
-            });
+                res.json({ 
+                    success: true, 
+                    privateKey: decryptedKey,
+                    publicKey: streamer.publicKey
+                });
+            } catch (error) {
+                console.error('Erreur de validation de la clé:', error);
+                return res.json({ success: false, error: 'Clé privée invalide' });
+            }
         } catch (error) {
+            console.error('Erreur de déchiffrement:', error);
             res.json({ success: false, error: 'Mot de passe incorrect' });
         }
     } catch (error) {
