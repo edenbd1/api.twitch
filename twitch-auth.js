@@ -1,7 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const fs = require('fs').promises;
-const path = require('path');
 const config = require('./config');
 
 const app = express();
@@ -18,6 +16,7 @@ app.get('/', (req, res) => {
 // Route pour démarrer l'authentification
 app.get('/auth', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${config.TWITCH_CLIENT_ID}&redirect_uri=${config.REDIRECT_URI}&response_type=code&scope=user:read:email`;
+    console.log('Auth URL:', authUrl);
     res.redirect(authUrl);
 });
 
@@ -56,15 +55,15 @@ app.get('/callback', async (req, res) => {
         console.log('User response:', twitchUserResponse.data);
 
         const twitchUser = twitchUserResponse.data.data[0];
-        
-        // Sauvegarde des données Twitch
-        await fs.writeFile('twitch_user.json', JSON.stringify(twitchUser, null, 2));
 
         // Appel à l'API Wavetip
         const wavetipResponse = await axios.get(`${config.WAVETIP_API_URL}/streamer/${twitchUser.login}`);
         
-        // Sauvegarde des données Wavetip
-        await fs.writeFile('wavetip_user.json', JSON.stringify(wavetipResponse.data, null, 2));
+        // Stockage des données en mémoire (pour la démo)
+        const userData = {
+            twitch: twitchUser,
+            wavetip: wavetipResponse.data
+        };
 
         // Redirection vers une page de succès
         res.send(`
@@ -91,10 +90,24 @@ app.get('/callback', async (req, res) => {
                         background-color: #1f1f23;
                         border-radius: 8px;
                         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                        max-width: 600px;
+                        width: 90%;
                     }
                     .success-message {
                         color: #00ff00;
                         margin: 20px 0;
+                    }
+                    .user-data {
+                        background: #2a2a2a;
+                        padding: 15px;
+                        border-radius: 4px;
+                        margin: 20px 0;
+                        text-align: left;
+                        overflow-x: auto;
+                    }
+                    .user-data pre {
+                        margin: 0;
+                        white-space: pre-wrap;
                     }
                 </style>
             </head>
@@ -102,7 +115,14 @@ app.get('/callback', async (req, res) => {
                 <div class="container">
                     <h1>Connexion réussie!</h1>
                     <p class="success-message">Bienvenue ${twitchUser.display_name}!</p>
-                    <p>Vos informations ont été sauvegardées avec succès.</p>
+                    <div class="user-data">
+                        <h3>Données Twitch :</h3>
+                        <pre>${JSON.stringify(twitchUser, null, 2)}</pre>
+                    </div>
+                    <div class="user-data">
+                        <h3>Données Wavetip :</h3>
+                        <pre>${JSON.stringify(wavetipResponse.data, null, 2)}</pre>
+                    </div>
                 </div>
             </body>
             </html>
