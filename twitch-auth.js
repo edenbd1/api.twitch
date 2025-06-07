@@ -6,7 +6,6 @@ const config = require('./config');
 const Streamer = require('./models/Streamer');
 const CryptoJS = require('crypto-js');
 const xrpl = require('xrpl');
-const { configureWallet } = require('./xrpl-client');
 require('dotenv').config();
 
 const app = express();
@@ -49,7 +48,7 @@ app.get('/set-password', (req, res) => {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Définir le mot de passe</title>
+            <title>Génération du wallet</title>
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -69,19 +68,6 @@ app.get('/set-password', (req, res) => {
                     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
                     width: 100%;
                     max-width: 400px;
-                }
-                .form-group {
-                    margin: 15px 0;
-                }
-                input {
-                    width: 100%;
-                    padding: 10px;
-                    margin: 5px 0;
-                    border: 1px solid #3a3a3a;
-                    border-radius: 4px;
-                    background-color: #1a1a1a;
-                    color: white;
-                    font-size: 16px;
                 }
                 button {
                     background-color: #9146ff;
@@ -105,37 +91,18 @@ app.get('/set-password', (req, res) => {
         </head>
         <body>
             <div class="container">
-                <h1>Définir votre mot de passe</h1>
-                <form id="passwordForm" onsubmit="return validateForm(event)">
-                    <div class="form-group">
-                        <input type="password" id="password" placeholder="Mot de passe" required>
-                    </div>
-                    <div class="form-group">
-                        <input type="password" id="confirmPassword" placeholder="Confirmer le mot de passe" required>
-                    </div>
-                    <div id="error" class="error"></div>
-                    <button type="submit">Valider</button>
-                </form>
+                <h1>Génération du wallet</h1>
+                <div id="error" class="error"></div>
+                <button onclick="generateWallet()">Générer mon wallet</button>
             </div>
             <script>
-                function validateForm(event) {
-                    event.preventDefault();
-                    const password = document.getElementById('password').value;
-                    const confirmPassword = document.getElementById('confirmPassword').value;
-                    const errorDiv = document.getElementById('error');
-
-                    if (password !== confirmPassword) {
-                        errorDiv.textContent = 'Les mots de passe ne correspondent pas';
-                        return false;
-                    }
-
+                function generateWallet() {
                     fetch('/save-password', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({ 
-                            password,
                             twitchId: '${twitchId}'
                         })
                     })
@@ -144,14 +111,12 @@ app.get('/set-password', (req, res) => {
                         if (data.success) {
                             window.location.href = '/';
                         } else {
-                            errorDiv.textContent = data.error;
+                            document.getElementById('error').textContent = data.error;
                         }
                     })
                     .catch(error => {
-                        errorDiv.textContent = 'Une erreur est survenue';
+                        document.getElementById('error').textContent = 'Une erreur est survenue';
                     });
-
-                    return false;
                 }
             </script>
         </body>
@@ -161,7 +126,7 @@ app.get('/set-password', (req, res) => {
 
 // Route pour sauvegarder le mot de passe et générer la clé XRPL
 app.post('/save-password', async (req, res) => {
-    const { password, twitchId } = req.body;
+    const { twitchId } = req.body;
 
     if (!twitchId) {
         return res.json({ success: false, error: 'ID Twitch manquant' });
@@ -174,31 +139,16 @@ app.post('/save-password', async (req, res) => {
         console.log('Seed:', wallet.seed);
         console.log('Address:', wallet.address);
 
-        // Chiffrer le seed avec le mot de passe
-        const encryptedKey = CryptoJS.AES.encrypt(wallet.seed, password).toString();
-        console.log('Seed chiffré:', encryptedKey);
-
-        // Configurer le wallet (DEFAULT_RIPPLE et trustline)
-        console.log('Configuration du wallet...');
-        const configResult = await configureWallet(wallet.seed);
-        console.log('Configuration terminée:', configResult);
-
-        // Mettre à jour le streamer dans la base de données avec les deux clés
+        // Mettre à jour le streamer dans la base de données avec les clés
         await Streamer.findOneAndUpdate(
             { twitchId },
             { 
                 publicKey: wallet.address,
-                encryptedKey
+                seed: wallet.seed
             }
         );
 
-        res.json({ 
-            success: true,
-            wallet: {
-                address: wallet.address,
-                transactions: configResult.transactions
-            }
-        });
+        res.json({ success: true });
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         res.json({ success: false, error: 'Erreur lors de la sauvegarde' });
@@ -207,62 +157,44 @@ app.post('/save-password', async (req, res) => {
 
 // Route pour vérifier le mot de passe et afficher la clé privée
 app.post('/check-password', async (req, res) => {
-    const { password, twitchId } = req.body;
+    const { twitchId } = req.body;
 
     try {
         const streamer = await Streamer.findOne({ twitchId });
-        if (!streamer || !streamer.encryptedKey) {
+        if (!streamer || !streamer.seed) {
             console.log('Aucune clé trouvée pour twitchId:', twitchId);
             return res.json({ success: false, error: 'Aucune clé trouvée' });
         }
 
         console.log('Données trouvées:');
         console.log('Clé publique stockée:', streamer.publicKey);
-        console.log('Clé chiffrée stockée:', streamer.encryptedKey);
+        console.log('Seed stockée:', streamer.seed);
 
-        // Tenter de déchiffrer la clé privée
+        // Vérifier si le seed est valide
         try {
-            console.log('Tentative de déchiffrement avec le mot de passe:', password);
-            const bytes = CryptoJS.AES.decrypt(streamer.encryptedKey, password);
-            const decryptedSeed = bytes.toString(CryptoJS.enc.Utf8);
-            
-            console.log('Seed déchiffré:', decryptedSeed);
-            
-            if (!decryptedSeed) {
-                console.log('Déchiffrement échoué - seed vide');
-                return res.json({ success: false, error: 'Mot de passe incorrect' });
-            }
+            console.log('Tentative de création du wallet avec le seed');
+            const wallet = xrpl.Wallet.fromSeed(streamer.seed);
+            console.log('Wallet créé avec succès');
+            console.log('Adresse du wallet:', wallet.address);
+            console.log('Adresse stockée:', streamer.publicKey);
 
-            // Vérifier si le seed déchiffré est valide
-            try {
-                console.log('Tentative de création du wallet avec le seed déchiffré');
-                const wallet = xrpl.Wallet.fromSeed(decryptedSeed);
-                console.log('Wallet créé avec succès');
-                console.log('Adresse du wallet:', wallet.address);
-                console.log('Adresse stockée:', streamer.publicKey);
-
-                // Vérification plus détaillée
-                if (wallet.address !== streamer.publicKey) {
-                    console.log('Les adresses ne correspondent pas:');
-                    console.log('Wallet généré:', wallet.address);
-                    console.log('Stockée:', streamer.publicKey);
-                    return res.json({ success: false, error: 'Clé privée invalide' });
-                }
-
-                console.log('Validation réussie, envoi des clés');
-                res.json({ 
-                    success: true, 
-                    privateKey: decryptedSeed,
-                    publicKey: streamer.publicKey
-                });
-            } catch (error) {
-                console.error('Erreur lors de la création du wallet:', error);
-                console.error('Seed qui a causé l\'erreur:', decryptedSeed);
+            // Vérification plus détaillée
+            if (wallet.address !== streamer.publicKey) {
+                console.log('Les adresses ne correspondent pas:');
+                console.log('Wallet généré:', wallet.address);
+                console.log('Stockée:', streamer.publicKey);
                 return res.json({ success: false, error: 'Clé privée invalide' });
             }
+
+            console.log('Validation réussie, envoi des clés');
+            res.json({ 
+                success: true, 
+                privateKey: streamer.seed,
+                publicKey: streamer.publicKey
+            });
         } catch (error) {
-            console.error('Erreur lors du déchiffrement:', error);
-            res.json({ success: false, error: 'Mot de passe incorrect' });
+            console.error('Erreur lors de la création du wallet:', error);
+            return res.json({ success: false, error: 'Clé privée invalide' });
         }
     } catch (error) {
         console.error('Erreur lors de la vérification:', error);
