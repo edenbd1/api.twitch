@@ -18,12 +18,57 @@ app.get('/', (req, res) => {
 // Route pour démarrer l'authentification
 app.get('/auth', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${config.TWITCH_CLIENT_ID}&redirect_uri=${config.REDIRECT_URI}&response_type=code&scope=user:read:email`;
+    console.log('Auth URL:', authUrl); // Pour debug
     res.redirect(authUrl);
 });
 
 // Route de callback après l'authentification
 app.get('/callback', async (req, res) => {
-    const { code } = req.query;
+    const { code, error, error_description } = req.query;
+    
+    if (error) {
+        console.error('Twitch Error:', error, error_description);
+        return res.status(500).send(`
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Erreur</title>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        margin: 0;
+                        background-color: #18181b;
+                        color: white;
+                    }
+                    .container {
+                        text-align: center;
+                        padding: 2rem;
+                        background-color: #1f1f23;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }
+                    .error-message {
+                        color: #ff0000;
+                        margin: 20px 0;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Erreur</h1>
+                    <p class="error-message">${error_description || 'Une erreur est survenue lors de l\'authentification.'}</p>
+                    <p>Veuillez réessayer plus tard.</p>
+                </div>
+            </body>
+            </html>
+        `);
+    }
     
     try {
         // Échange du code contre un access token
