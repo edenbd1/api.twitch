@@ -1,5 +1,12 @@
 module.exports = {
+    MONGODB_URI: process.env.MONGODB_URI,
     TWITCH_CLIENT_ID: process.env.TWITCH_CLIENT_ID,
     TWITCH_CLIENT_SECRET: process.env.TWITCH_CLIENT_SECRET,
     REDIRECT_URI: process.env.REDIRECT_URI,
+    XRPL_HOT_WALLET_SEED: process.env.XRPL_HOT_WALLET_SEED,
+    XRPL_HOT_WALLET_ADDRESS: process.env.XRPL_HOT_WALLET_ADDRESS,
+    XRPL_EXPLORER_URL: process.env.XRPL_EXPLORER_URL || 'https://testnet.xrpl.org',
+    XRPL_RLUSD_ISSUER: process.env.XRPL_RLUSD_ISSUER,
+    XRPL_RLUSD_CURRENCY: process.env.XRPL_RLUSD_CURRENCY || 'RLUSD',
+    XRPL_RLUSD_CURRENCY_HEX: process.env.XRPL_RLUSD_CURRENCY_HEX
 }; 
