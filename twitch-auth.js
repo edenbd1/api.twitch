@@ -1,21 +1,22 @@
 const express = require('express');
 const axios = require('axios');
+const path = require('path');
 const config = require('./config');
 
 const app = express();
+const port = 3000;
 
 // Middleware pour servir les fichiers statiques
 app.use(express.static('public'));
 
 // Route principale
 app.get('/', (req, res) => {
-    res.sendFile('index.html', { root: './public' });
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Route pour démarrer l'authentification
 app.get('/auth', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${config.TWITCH_CLIENT_ID}&redirect_uri=${config.REDIRECT_URI}&response_type=code&scope=user:read:email`;
-    console.log('Auth URL:', authUrl);
     res.redirect(authUrl);
 });
 
@@ -24,10 +25,6 @@ app.get('/callback', async (req, res) => {
     const { code } = req.query;
     
     try {
-        console.log('Code reçu:', code);
-        console.log('Client ID:', config.TWITCH_CLIENT_ID);
-        console.log('Redirect URI:', config.REDIRECT_URI);
-
         // Échange du code contre un access token
         const tokenResponse = await axios.post('https://id.twitch.tv/oauth2/token', null, {
             params: {
@@ -39,8 +36,6 @@ app.get('/callback', async (req, res) => {
             }
         });
 
-        console.log('Token response:', tokenResponse.data);
-
         const accessToken = tokenResponse.data.access_token;
 
         // Récupération des informations utilisateur Twitch
@@ -51,20 +46,12 @@ app.get('/callback', async (req, res) => {
             }
         });
 
-        console.log('User response:', twitchUserResponse.data);
-
         const twitchUser = twitchUserResponse.data.data[0];
-
+        
         // Appel à l'API Wavetip
         const wavetipResponse = await axios.get(`${config.WAVETIP_API_URL}/streamer/${twitchUser.login}`);
-        
-        // Stockage des données en mémoire (pour la démo)
-        const userData = {
-            twitch: twitchUser,
-            wavetip: wavetipResponse.data
-        };
 
-        // Redirection vers une page de succès
+        // Affichage des données sur la page
         res.send(`
             <!DOCTYPE html>
             <html lang="fr">
@@ -75,38 +62,51 @@ app.get('/callback', async (req, res) => {
                 <style>
                     body {
                         font-family: Arial, sans-serif;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        height: 100vh;
                         margin: 0;
+                        padding: 20px;
                         background-color: #18181b;
                         color: white;
                     }
                     .container {
-                        text-align: center;
+                        max-width: 800px;
+                        margin: 0 auto;
                         padding: 2rem;
                         background-color: #1f1f23;
                         border-radius: 8px;
                         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                        max-width: 600px;
-                        width: 90%;
                     }
                     .success-message {
                         color: #00ff00;
                         margin: 20px 0;
                     }
-                    .user-data {
-                        background: #2a2a2a;
+                    .data-section {
+                        margin: 20px 0;
+                        padding: 15px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                    .data-section h2 {
+                        color: #9146ff;
+                        margin-top: 0;
+                    }
+                    pre {
+                        background-color: #1a1a1a;
                         padding: 15px;
                         border-radius: 4px;
-                        margin: 20px 0;
-                        text-align: left;
                         overflow-x: auto;
-                    }
-                    .user-data pre {
-                        margin: 0;
                         white-space: pre-wrap;
+                    }
+                    .back-button {
+                        display: inline-block;
+                        background-color: #9146ff;
+                        color: white;
+                        padding: 10px 20px;
+                        text-decoration: none;
+                        border-radius: 4px;
+                        margin-top: 20px;
+                    }
+                    .back-button:hover {
+                        background-color: #772ce8;
                     }
                 </style>
             </head>
@@ -114,14 +114,18 @@ app.get('/callback', async (req, res) => {
                 <div class="container">
                     <h1>Connexion réussie!</h1>
                     <p class="success-message">Bienvenue ${twitchUser.display_name}!</p>
-                    <div class="user-data">
-                        <h3>Données Twitch :</h3>
+                    
+                    <div class="data-section">
+                        <h2>Données Twitch</h2>
                         <pre>${JSON.stringify(twitchUser, null, 2)}</pre>
                     </div>
-                    <div class="user-data">
-                        <h3>Données Wavetip :</h3>
+
+                    <div class="data-section">
+                        <h2>Données Wavetip</h2>
                         <pre>${JSON.stringify(wavetipResponse.data, null, 2)}</pre>
                     </div>
+
+                    <a href="/" class="back-button">Retour à l'accueil</a>
                 </div>
             </body>
             </html>
@@ -167,6 +171,18 @@ app.get('/callback', async (req, res) => {
                         border-radius: 4px;
                         overflow-x: auto;
                     }
+                    .back-button {
+                        display: inline-block;
+                        background-color: #9146ff;
+                        color: white;
+                        padding: 10px 20px;
+                        text-decoration: none;
+                        border-radius: 4px;
+                        margin-top: 20px;
+                    }
+                    .back-button:hover {
+                        background-color: #772ce8;
+                    }
                 </style>
             </head>
             <body>
@@ -176,7 +192,7 @@ app.get('/callback', async (req, res) => {
                     <div class="error-details">
                         <pre>${JSON.stringify(error.response ? error.response.data : error.message, null, 2)}</pre>
                     </div>
-                    <p>Veuillez réessayer plus tard.</p>
+                    <a href="/" class="back-button">Retour à l'accueil</a>
                 </div>
             </body>
             </html>
@@ -184,5 +200,6 @@ app.get('/callback', async (req, res) => {
     }
 });
 
-// Export pour Vercel
-module.exports = app; 
+app.listen(port, () => {
+    console.log(`Serveur démarré sur http://localhost:${port}`);
+}); 
