@@ -163,91 +163,117 @@ app.post('/save-password', async (req, res) => {
     const { password, twitchId } = req.body;
 
     if (!twitchId) {
+        console.error('Erreur: ID Twitch manquant');
         return res.json({ success: false, error: 'ID Twitch manquant' });
     }
 
     try {
+        console.log('1. Début du processus de sauvegarde');
+        console.log('2. Vérification de la configuration');
+        
         // Vérifier la configuration
         if (!process.env.ADMIN_WALLET_SEED) {
+            console.error('Erreur: ADMIN_WALLET_SEED non défini');
             throw new Error("ADMIN_WALLET_SEED non défini dans le fichier .env");
         }
 
+        console.log('3. Génération du wallet utilisateur');
         // Générer une nouvelle clé XRPL
         const userWallet = xrpl.Wallet.generate();
-        console.log('Nouveau wallet généré:');
-        console.log('Seed:', userWallet.seed);
-        console.log('Address:', userWallet.address);
+        console.log('Wallet généré - Address:', userWallet.address);
 
+        console.log('4. Connexion au client XRPL');
         // Connexion au client XRPL
         const xrplClient = new xrpl.Client(process.env.XRPL_NODE || "wss://s.altnet.rippletest.net:51233");
-        await xrplClient.connect();
+        try {
+            await xrplClient.connect();
+            console.log('Client XRPL connecté');
+        } catch (error) {
+            console.error('Erreur de connexion au client XRPL:', error.message);
+            throw error;
+        }
 
+        console.log('5. Chargement du wallet admin');
         // Charger le wallet admin
         const adminWallet = xrpl.Wallet.fromSeed(process.env.ADMIN_WALLET_SEED);
-        console.log(`Wallet admin: ${adminWallet.address}`);
+        console.log('Wallet admin chargé:', adminWallet.address);
 
-        // Vérifier le solde admin
-        const adminBalanceResponse = await xrplClient.request({
-            command: "account_info",
-            account: adminWallet.address,
-            ledger_index: "validated"
-        });
+        console.log('6. Vérification du solde admin');
+        try {
+            const adminBalanceResponse = await xrplClient.request({
+                command: "account_info",
+                account: adminWallet.address,
+                ledger_index: "validated"
+            });
 
-        const adminXrpBalance = xrpl.dropsToXrp(adminBalanceResponse.result.account_data.Balance);
-        console.log(`Solde admin: ${adminXrpBalance} XRP`);
+            const adminXrpBalance = xrpl.dropsToXrp(adminBalanceResponse.result.account_data.Balance);
+            console.log('Solde admin:', adminXrpBalance, 'XRP');
+        } catch (error) {
+            console.error('Erreur lors de la vérification du solde admin:', error.message);
+            throw error;
+        }
 
-        // Fund le wallet utilisateur avec 1.21 XRP
-        console.log(`Funding du wallet utilisateur avec 1.21 XRP...`);
-        
-        const fundTx = await xrplClient.autofill({
-            TransactionType: "Payment",
-            Account: adminWallet.address,
-            Amount: xrpl.xrpToDrops("1.21"),
-            Destination: userWallet.address
-        });
+        console.log('7. Funding du wallet utilisateur');
+        try {
+            const fundTx = await xrplClient.autofill({
+                TransactionType: "Payment",
+                Account: adminWallet.address,
+                Amount: xrpl.xrpToDrops("1.21"),
+                Destination: userWallet.address
+            });
 
-        const fundTxSigned = adminWallet.sign(fundTx);
-        const fundTxResult = await xrplClient.submitAndWait(fundTxSigned.tx_blob);
-        console.log(`Funding réussi! Hash: ${fundTxResult.result.hash}`);
+            const fundTxSigned = adminWallet.sign(fundTx);
+            const fundTxResult = await xrplClient.submitAndWait(fundTxSigned.tx_blob);
+            console.log('Funding réussi - Hash:', fundTxResult.result.hash);
+        } catch (error) {
+            console.error('Erreur lors du funding:', error.message);
+            throw error;
+        }
 
-        // Activer DEFAULT_RIPPLE
-        console.log(`Activation de DEFAULT_RIPPLE...`);
-        
-        const accountSetTx = await xrplClient.autofill({
-            TransactionType: "AccountSet",
-            Account: userWallet.address,
-            SetFlag: 8 // asfDefaultRipple
-        });
+        console.log('8. Activation de DEFAULT_RIPPLE');
+        try {
+            const accountSetTx = await xrplClient.autofill({
+                TransactionType: "AccountSet",
+                Account: userWallet.address,
+                SetFlag: 8
+            });
 
-        const accountSetTxSigned = userWallet.sign(accountSetTx);
-        const accountSetTxResult = await xrplClient.submitAndWait(accountSetTxSigned.tx_blob);
-        console.log(`DEFAULT_RIPPLE activé! Hash: ${accountSetTxResult.result.hash}`);
+            const accountSetTxSigned = userWallet.sign(accountSetTx);
+            const accountSetTxResult = await xrplClient.submitAndWait(accountSetTxSigned.tx_blob);
+            console.log('DEFAULT_RIPPLE activé - Hash:', accountSetTxResult.result.hash);
+        } catch (error) {
+            console.error('Erreur lors de l\'activation de DEFAULT_RIPPLE:', error.message);
+            throw error;
+        }
 
-        // Configurer la trustline pour RLUSD
-        console.log(`Configuration de la trustline RLUSD...`);
-        
-        const trustSetTx = await xrplClient.autofill({
-            TransactionType: "TrustSet",
-            Account: userWallet.address,
-            LimitAmount: {
-                currency: process.env.RLUSD_CURRENCY_HEX,
-                issuer: process.env.RLUSD_ISSUER,
-                value: "1000000"
-            }
-        });
+        console.log('9. Configuration de la trustline');
+        try {
+            const trustSetTx = await xrplClient.autofill({
+                TransactionType: "TrustSet",
+                Account: userWallet.address,
+                LimitAmount: {
+                    currency: process.env.RLUSD_CURRENCY_HEX,
+                    issuer: process.env.RLUSD_ISSUER,
+                    value: "1000000"
+                }
+            });
 
-        const trustSetTxSigned = userWallet.sign(trustSetTx);
-        const trustSetTxResult = await xrplClient.submitAndWait(trustSetTxSigned.tx_blob);
-        console.log(`Trustline configurée! Hash: ${trustSetTxResult.result.hash}`);
+            const trustSetTxSigned = userWallet.sign(trustSetTx);
+            const trustSetTxResult = await xrplClient.submitAndWait(trustSetTxSigned.tx_blob);
+            console.log('Trustline configurée - Hash:', trustSetTxResult.result.hash);
+        } catch (error) {
+            console.error('Erreur lors de la configuration de la trustline:', error.message);
+            throw error;
+        }
 
-        // Déconnecter le client
+        console.log('10. Déconnexion du client XRPL');
         await xrplClient.disconnect();
 
-        // Chiffrer le seed avec le mot de passe
+        console.log('11. Chiffrement du seed');
         const encryptedKey = CryptoJS.AES.encrypt(userWallet.seed, password).toString();
-        console.log('Seed chiffré:', encryptedKey);
+        console.log('Seed chiffré avec succès');
 
-        // Mettre à jour le streamer dans la base de données avec les deux clés
+        console.log('12. Mise à jour dans MongoDB');
         await Streamer.findOneAndUpdate(
             { twitchId },
             { 
@@ -255,10 +281,16 @@ app.post('/save-password', async (req, res) => {
                 encryptedKey
             }
         );
+        console.log('Mise à jour MongoDB réussie');
 
+        console.log('13. Processus terminé avec succès');
         res.json({ success: true });
     } catch (error) {
-        console.error('Erreur lors de la sauvegarde:', error);
+        console.error('ERREUR DÉTAILLÉE:', {
+            message: error.message,
+            stack: error.stack,
+            data: error.data
+        });
         res.json({ success: false, error: 'Erreur lors de la sauvegarde' });
     }
 });
