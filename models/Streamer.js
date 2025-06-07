@@ -5,7 +5,7 @@ const streamerSchema = new mongoose.Schema({
     displayName: { type: String, required: true },
     login: { type: String, required: true },
     email: { type: String, required: true },
-    password: { type: String, required: false },
+    publicKey: { type: String, required: false },
     encryptedKey: { type: String, required: false },
     createdAt: { type: Date, default: Date.now }
 });

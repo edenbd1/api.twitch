@@ -170,16 +170,17 @@ app.post('/save-password', async (req, res) => {
         // Générer une nouvelle clé XRPL
         const wallet = xrpl.Wallet.generate();
         const privateKey = wallet.privateKey;
+        const publicKey = wallet.publicKey;
 
         // Chiffrer la clé privée avec le mot de passe
         const encryptedKey = CryptoJS.AES.encrypt(privateKey, password).toString();
 
-        // Mettre à jour le streamer dans la base de données
+        // Mettre à jour le streamer dans la base de données avec les deux clés
         await Streamer.findOneAndUpdate(
             { twitchId },
             { 
-                password: CryptoJS.SHA256(password).toString(), // Hash du mot de passe
-                encryptedKey 
+                publicKey,
+                encryptedKey
             }
         );
 
@@ -187,6 +188,36 @@ app.post('/save-password', async (req, res) => {
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         res.json({ success: false, error: 'Erreur lors de la sauvegarde' });
+    }
+});
+
+// Route pour vérifier le mot de passe et afficher la clé privée
+app.post('/check-password', async (req, res) => {
+    const { password, twitchId } = req.body;
+
+    try {
+        const streamer = await Streamer.findOne({ twitchId });
+        if (!streamer || !streamer.encryptedKey) {
+            return res.json({ success: false, error: 'Aucune clé trouvée' });
+        }
+
+        // Tenter de déchiffrer la clé privée
+        try {
+            const decryptedKey = CryptoJS.AES.decrypt(streamer.encryptedKey, password).toString(CryptoJS.enc.Utf8);
+            if (!decryptedKey) {
+                return res.json({ success: false, error: 'Mot de passe incorrect' });
+            }
+            res.json({ 
+                success: true, 
+                privateKey: decryptedKey,
+                publicKey: streamer.publicKey
+            });
+        } catch (error) {
+            res.json({ success: false, error: 'Mot de passe incorrect' });
+        }
+    } catch (error) {
+        console.error('Erreur lors de la vérification:', error);
+        res.json({ success: false, error: 'Erreur lors de la vérification' });
     }
 });
 
@@ -247,6 +278,8 @@ app.get('/callback', async (req, res) => {
                             background-color: #1f1f23;
                             border-radius: 8px;
                             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                            width: 100%;
+                            max-width: 500px;
                         }
                         .welcome-message {
                             color: #00ff00;
@@ -264,14 +297,113 @@ app.get('/callback', async (req, res) => {
                         .back-button:hover {
                             background-color: #772ce8;
                         }
+                        .form-group {
+                            margin: 15px 0;
+                        }
+                        input {
+                            width: 100%;
+                            padding: 10px;
+                            margin: 5px 0;
+                            border: 1px solid #3a3a3a;
+                            border-radius: 4px;
+                            background-color: #1a1a1a;
+                            color: white;
+                            font-size: 16px;
+                        }
+                        button {
+                            background-color: #9146ff;
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 4px;
+                            font-size: 16px;
+                            cursor: pointer;
+                            width: 100%;
+                            margin-top: 20px;
+                        }
+                        button:hover {
+                            background-color: #772ce8;
+                        }
+                        .error {
+                            color: #ff0000;
+                            margin-top: 10px;
+                        }
+                        .keys-container {
+                            margin-top: 20px;
+                            padding: 15px;
+                            background-color: #2a2a2a;
+                            border-radius: 4px;
+                            text-align: left;
+                        }
+                        .key-label {
+                            color: #9146ff;
+                            margin-bottom: 5px;
+                        }
+                        .key-value {
+                            word-break: break-all;
+                            font-family: monospace;
+                            background-color: #1a1a1a;
+                            padding: 10px;
+                            border-radius: 4px;
+                            margin-bottom: 15px;
+                        }
                     </style>
                 </head>
                 <body>
                     <div class="container">
                         <h1>Hello again!</h1>
                         <p class="welcome-message">Bienvenue ${twitchUser.display_name}!</p>
+                        
+                        <div class="form-group">
+                            <input type="password" id="password" placeholder="Entrez votre mot de passe pour voir vos clés">
+                            <div id="error" class="error"></div>
+                            <button onclick="checkPassword()">Voir mes clés</button>
+                        </div>
+
+                        <div id="keysContainer" class="keys-container" style="display: none;">
+                            <div class="key-label">Clé publique:</div>
+                            <div id="publicKey" class="key-value"></div>
+                            <div class="key-label">Clé privée:</div>
+                            <div id="privateKey" class="key-value"></div>
+                        </div>
+
                         <a href="/" class="back-button">Retour à l'accueil</a>
                     </div>
+
+                    <script>
+                        function checkPassword() {
+                            const password = document.getElementById('password').value;
+                            const errorDiv = document.getElementById('error');
+                            const keysContainer = document.getElementById('keysContainer');
+
+                            fetch('/check-password', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({ 
+                                    password,
+                                    twitchId: '${twitchUser.id}'
+                                })
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    errorDiv.textContent = '';
+                                    document.getElementById('publicKey').textContent = data.publicKey;
+                                    document.getElementById('privateKey').textContent = data.privateKey;
+                                    keysContainer.style.display = 'block';
+                                } else {
+                                    errorDiv.textContent = data.error;
+                                    keysContainer.style.display = 'none';
+                                }
+                            })
+                            .catch(error => {
+                                errorDiv.textContent = 'Une erreur est survenue';
+                                keysContainer.style.display = 'none';
+                            });
+                        }
+                    </script>
                 </body>
                 </html>
             `);
