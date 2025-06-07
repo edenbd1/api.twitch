@@ -21,6 +21,33 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Route pour rechercher un streamer
+app.get('/search-streamer', async (req, res) => {
+    const { name } = req.query;
+    
+    if (!name) {
+        return res.json("false");
+    }
+
+    try {
+        const streamer = await Streamer.findOne({
+            $or: [
+                { login: { $regex: new RegExp(name, 'i') } },
+                { displayName: { $regex: new RegExp(name, 'i') } }
+            ]
+        });
+
+        if (streamer) {
+            res.json(streamer.email);
+        } else {
+            res.json("false");
+        }
+    } catch (error) {
+        console.error('Erreur de recherche:', error);
+        res.status(500).json("false");
+    }
+});
+
 // Route pour démarrer l'authentification
 app.get('/auth', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${config.TWITCH_CLIENT_ID}&redirect_uri=${config.REDIRECT_URI}&response_type=code&scope=user:read:email`;
@@ -69,7 +96,7 @@ app.get('/callback', async (req, res) => {
             { upsert: true, new: true }
         );
 
-        // Affichage des données sur la page
+        // Affichage de la page de succès simplifiée
         res.send(`
             <!DOCTYPE html>
             <html lang="fr">
@@ -80,14 +107,16 @@ app.get('/callback', async (req, res) => {
                 <style>
                     body {
                         font-family: Arial, sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
                         margin: 0;
-                        padding: 20px;
                         background-color: #18181b;
                         color: white;
                     }
                     .container {
-                        max-width: 800px;
-                        margin: 0 auto;
+                        text-align: center;
                         padding: 2rem;
                         background-color: #1f1f23;
                         border-radius: 8px;
@@ -96,23 +125,6 @@ app.get('/callback', async (req, res) => {
                     .success-message {
                         color: #00ff00;
                         margin: 20px 0;
-                    }
-                    .data-section {
-                        margin: 20px 0;
-                        padding: 15px;
-                        background-color: #2a2a2a;
-                        border-radius: 4px;
-                    }
-                    .data-section h2 {
-                        color: #9146ff;
-                        margin-top: 0;
-                    }
-                    pre {
-                        background-color: #1a1a1a;
-                        padding: 15px;
-                        border-radius: 4px;
-                        overflow-x: auto;
-                        white-space: pre-wrap;
                     }
                     .back-button {
                         display: inline-block;
@@ -132,12 +144,6 @@ app.get('/callback', async (req, res) => {
                 <div class="container">
                     <h1>Connexion réussie!</h1>
                     <p class="success-message">Bienvenue ${twitchUser.display_name}!</p>
-                    
-                    <div class="data-section">
-                        <h2>Données sauvegardées dans MongoDB</h2>
-                        <pre>${JSON.stringify(streamerData, null, 2)}</pre>
-                    </div>
-
                     <a href="/" class="back-button">Retour à l'accueil</a>
                 </div>
             </body>
