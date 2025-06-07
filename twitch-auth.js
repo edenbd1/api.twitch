@@ -4,13 +4,16 @@ const path = require('path');
 const mongoose = require('mongoose');
 const config = require('./config');
 const Streamer = require('./models/Streamer');
-const xrplUtils = require('./xrpl-utils');
+const CryptoJS = require('crypto-js');
+const xrpl = require('xrpl');
+require('dotenv').config();
 
 const app = express();
 const port = 3000;
 
 // Middleware pour parser le JSON
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Connexion à MongoDB
 mongoose.connect(process.env.MONGODB_URI)
@@ -27,58 +30,163 @@ app.get('/', (req, res) => {
 
 // Route pour démarrer l'authentification
 app.get('/auth', (req, res) => {
-    const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${config.TWITCH_CLIENT_ID}&redirect_uri=${config.REDIRECT_URI}&response_type=code&scope=user:read:email`;
+    const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${process.env.TWITCH_CLIENT_ID}&redirect_uri=${process.env.REDIRECT_URI}&response_type=code&scope=user:read:email`;
     res.redirect(authUrl);
 });
 
-// Route pour créer le wallet
-app.post('/create-wallet', async (req, res) => {
-    const { twitchId, password } = req.body;
+// Route pour afficher le formulaire de mot de passe
+app.get('/set-password', (req, res) => {
+    const { twitchId } = req.query;
     
-    if (!twitchId || !password) {
-        return res.status(400).json({ error: "Twitch ID et mot de passe requis" });
+    if (!twitchId) {
+        return res.redirect('/');
+    }
+
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Définir le mot de passe</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background-color: #18181b;
+                    color: white;
+                }
+                .container {
+                    text-align: center;
+                    padding: 2rem;
+                    background-color: #1f1f23;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    width: 100%;
+                    max-width: 400px;
+                }
+                .form-group {
+                    margin: 15px 0;
+                }
+                input {
+                    width: 100%;
+                    padding: 10px;
+                    margin: 5px 0;
+                    border: 1px solid #3a3a3a;
+                    border-radius: 4px;
+                    background-color: #1a1a1a;
+                    color: white;
+                    font-size: 16px;
+                }
+                button {
+                    background-color: #9146ff;
+                    color: white;
+                    border: none;
+                    padding: 12px 24px;
+                    border-radius: 4px;
+                    font-size: 16px;
+                    cursor: pointer;
+                    width: 100%;
+                    margin-top: 20px;
+                }
+                button:hover {
+                    background-color: #772ce8;
+                }
+                .error {
+                    color: #ff0000;
+                    margin-top: 10px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Définir votre mot de passe</h1>
+                <form id="passwordForm" onsubmit="return validateForm(event)">
+                    <div class="form-group">
+                        <input type="password" id="password" placeholder="Mot de passe" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="confirmPassword" placeholder="Confirmer le mot de passe" required>
+                    </div>
+                    <div id="error" class="error"></div>
+                    <button type="submit">Valider</button>
+                </form>
+            </div>
+            <script>
+                function validateForm(event) {
+                    event.preventDefault();
+                    const password = document.getElementById('password').value;
+                    const confirmPassword = document.getElementById('confirmPassword').value;
+                    const errorDiv = document.getElementById('error');
+
+                    if (password !== confirmPassword) {
+                        errorDiv.textContent = 'Les mots de passe ne correspondent pas';
+                        return false;
+                    }
+
+                    fetch('/save-password', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ 
+                            password,
+                            twitchId: '${twitchId}'
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.href = '/';
+                        } else {
+                            errorDiv.textContent = data.error;
+                        }
+                    })
+                    .catch(error => {
+                        errorDiv.textContent = 'Une erreur est survenue';
+                    });
+
+                    return false;
+                }
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+// Route pour sauvegarder le mot de passe et générer la clé XRPL
+app.post('/save-password', async (req, res) => {
+    const { password, twitchId } = req.body;
+
+    if (!twitchId) {
+        return res.json({ success: false, error: 'ID Twitch manquant' });
     }
 
     try {
-        const streamer = await Streamer.findOne({ twitchId });
-        
-        if (!streamer) {
-            return res.status(404).json({ error: "Streamer non trouvé" });
-        }
+        // Générer une nouvelle clé XRPL
+        const wallet = xrpl.Wallet.generate();
+        const privateKey = wallet.privateKey;
 
-        if (streamer.walletAddress) {
-            return res.status(400).json({ error: "Wallet déjà créé" });
-        }
+        // Chiffrer la clé privée avec le mot de passe
+        const encryptedKey = CryptoJS.AES.encrypt(privateKey, password).toString();
 
-        // Créer le wallet
-        const wallet = await xrplUtils.createWallet();
-        
-        // Chiffrer la clé privée
-        const encryptedPrivateKey = xrplUtils.encryptPrivateKey(wallet.privateKey, password);
-        
-        // Mettre à jour le streamer
-        streamer.walletAddress = wallet.address;
-        streamer.encryptedPrivateKey = encryptedPrivateKey;
-        await streamer.save();
+        // Mettre à jour le streamer dans la base de données
+        await Streamer.findOneAndUpdate(
+            { twitchId },
+            { 
+                password: CryptoJS.SHA256(password).toString(), // Hash du mot de passe
+                encryptedKey 
+            }
+        );
 
-        // Configurer le wallet en arrière-plan
-        try {
-            await xrplUtils.fundWallet(wallet.address);
-            await xrplUtils.enableDefaultRipple(wallet.seed);
-            await xrplUtils.setupRLUSDTrustline(wallet.seed);
-            console.log(`Wallet configuré avec succès pour ${streamer.displayName}`);
-        } catch (configError) {
-            console.error(`Erreur lors de la configuration du wallet:`, configError);
-        }
-
-        res.json({ 
-            success: true, 
-            walletAddress: wallet.address,
-            explorerUrl: `${process.env.XRPL_EXPLORER_URL}/accounts/${wallet.address}`
-        });
+        res.json({ success: true });
     } catch (error) {
-        console.error('Erreur:', error);
-        res.status(500).json({ error: "Une erreur est survenue" });
+        console.error('Erreur lors de la sauvegarde:', error);
+        res.json({ success: false, error: 'Erreur lors de la sauvegarde' });
     }
 });
 
@@ -90,11 +198,11 @@ app.get('/callback', async (req, res) => {
         // Échange du code contre un access token
         const tokenResponse = await axios.post('https://id.twitch.tv/oauth2/token', null, {
             params: {
-                client_id: config.TWITCH_CLIENT_ID,
-                client_secret: config.TWITCH_CLIENT_SECRET,
+                client_id: process.env.TWITCH_CLIENT_ID,
+                client_secret: process.env.TWITCH_CLIENT_SECRET,
                 code: code,
                 grant_type: 'authorization_code',
-                redirect_uri: config.REDIRECT_URI
+                redirect_uri: process.env.REDIRECT_URI
             }
         });
 
@@ -104,7 +212,7 @@ app.get('/callback', async (req, res) => {
         const twitchUserResponse = await axios.get('https://api.twitch.tv/helix/users', {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                'Client-Id': config.TWITCH_CLIENT_ID
+                'Client-Id': process.env.TWITCH_CLIENT_ID
             }
         });
 
@@ -144,13 +252,6 @@ app.get('/callback', async (req, res) => {
                             color: #00ff00;
                             margin: 20px 0;
                         }
-                        .wallet-info {
-                            background-color: #2a2a2a;
-                            padding: 15px;
-                            border-radius: 4px;
-                            margin: 20px 0;
-                            word-break: break-all;
-                        }
                         .back-button {
                             display: inline-block;
                             background-color: #9146ff;
@@ -169,11 +270,6 @@ app.get('/callback', async (req, res) => {
                     <div class="container">
                         <h1>Hello again!</h1>
                         <p class="welcome-message">Bienvenue ${twitchUser.display_name}!</p>
-                        <div class="wallet-info">
-                            <p>Votre wallet XRPL :</p>
-                            <p>${existingStreamer.walletAddress}</p>
-                            <a href="${process.env.XRPL_EXPLORER_URL}/accounts/${existingStreamer.walletAddress}" target="_blank">Voir sur l'explorateur</a>
-                        </div>
                         <a href="/" class="back-button">Retour à l'accueil</a>
                     </div>
                 </body>
@@ -188,142 +284,11 @@ app.get('/callback', async (req, res) => {
                 email: twitchUser.email
             };
 
-            const newStreamer = new Streamer(streamerData);
-            await newStreamer.save();
+            // Sauvegarder les données de base
+            await Streamer.create(streamerData);
 
-            res.send(`
-                <!DOCTYPE html>
-                <html lang="fr">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Créer votre wallet</title>
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            height: 100vh;
-                            margin: 0;
-                            background-color: #18181b;
-                            color: white;
-                        }
-                        .container {
-                            text-align: center;
-                            padding: 2rem;
-                            background-color: #1f1f23;
-                            border-radius: 8px;
-                            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                            max-width: 400px;
-                        }
-                        .welcome-message {
-                            color: #00ff00;
-                            margin: 20px 0;
-                        }
-                        .password-form {
-                            margin: 20px 0;
-                        }
-                        .password-input {
-                            width: 100%;
-                            padding: 10px;
-                            margin: 10px 0;
-                            border: 1px solid #3a3a3a;
-                            border-radius: 4px;
-                            background-color: #1a1a1a;
-                            color: white;
-                            font-size: 16px;
-                        }
-                        .submit-button {
-                            background-color: #9146ff;
-                            color: white;
-                            border: none;
-                            padding: 10px 20px;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 16px;
-                            margin-top: 10px;
-                        }
-                        .submit-button:hover {
-                            background-color: #772ce8;
-                        }
-                        .error-message {
-                            color: #ff0000;
-                            margin-top: 10px;
-                            display: none;
-                        }
-                        .wallet-info {
-                            background-color: #2a2a2a;
-                            padding: 15px;
-                            border-radius: 4px;
-                            margin: 20px 0;
-                            word-break: break-all;
-                            display: none;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <h1>Bienvenue ${twitchUser.display_name}!</h1>
-                        <p class="welcome-message">Créez votre wallet XRPL</p>
-                        <div class="password-form">
-                            <input type="password" id="password" class="password-input" placeholder="Choisissez un mot de passe">
-                            <button onclick="createWallet()" class="submit-button">Créer mon wallet</button>
-                            <p id="error" class="error-message"></p>
-                        </div>
-                        <div id="walletInfo" class="wallet-info">
-                            <p>Votre wallet XRPL a été créé :</p>
-                            <p id="walletAddress"></p>
-                            <a id="explorerLink" href="#" target="_blank">Voir sur l'explorateur</a>
-                        </div>
-                    </div>
-
-                    <script>
-                        async function createWallet() {
-                            const password = document.getElementById('password').value;
-                            const errorElement = document.getElementById('error');
-                            const walletInfo = document.getElementById('walletInfo');
-                            const walletAddress = document.getElementById('walletAddress');
-                            const explorerLink = document.getElementById('explorerLink');
-                            
-                            if (!password) {
-                                errorElement.textContent = "Veuillez entrer un mot de passe";
-                                errorElement.style.display = "block";
-                                return;
-                            }
-
-                            try {
-                                const response = await fetch('/create-wallet', {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json'
-                                    },
-                                    body: JSON.stringify({
-                                        twitchId: '${twitchUser.id}',
-                                        password: password
-                                    })
-                                });
-
-                                const data = await response.json();
-
-                                if (data.error) {
-                                    errorElement.textContent = data.error;
-                                    errorElement.style.display = "block";
-                                } else {
-                                    errorElement.style.display = "none";
-                                    walletInfo.style.display = "block";
-                                    walletAddress.textContent = data.walletAddress;
-                                    explorerLink.href = data.explorerUrl;
-                                }
-                            } catch (error) {
-                                errorElement.textContent = "Une erreur est survenue";
-                                errorElement.style.display = "block";
-                            }
-                        }
-                    </script>
-                </body>
-                </html>
-            `);
+            // Rediriger vers le formulaire de mot de passe avec l'ID Twitch
+            res.redirect(`/set-password?twitchId=${twitchUser.id}`);
         }
     } catch (error) {
         console.error('Erreur détaillée:', error.response ? error.response.data : error.message);

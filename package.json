@@ -1,15 +1,17 @@
 {
   "name": "twitch-auth",
   "version": "1.0.0",
-  "description": "Twitch OAuth 2.0 Authentication",
+  "description": "Twitch OAuth2 Authentication",
   "main": "twitch-auth.js",
   "scripts": {
     "start": "node twitch-auth.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "axios": "^1.6.2",
+    "axios": "^1.6.7",
     "mongoose": "^8.1.0",
-    "dotenv": "^16.4.1"
+    "dotenv": "^16.4.1",
+    "crypto-js": "^4.2.0",
+    "xrpl": "^2.14.0"
   }
 } 
