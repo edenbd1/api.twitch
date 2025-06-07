@@ -169,17 +169,19 @@ app.post('/save-password', async (req, res) => {
     try {
         // Générer une nouvelle clé XRPL
         const wallet = xrpl.Wallet.generate();
-        const privateKey = wallet.privateKey; // Format "s..."
-        const publicKey = wallet.classicAddress; // Format "r..."
+        console.log('Nouveau wallet généré:');
+        console.log('Private Key:', wallet.privateKey);
+        console.log('Public Key:', wallet.classicAddress);
 
         // Chiffrer la clé privée avec le mot de passe
-        const encryptedKey = CryptoJS.AES.encrypt(privateKey, password).toString();
+        const encryptedKey = CryptoJS.AES.encrypt(wallet.privateKey, password).toString();
+        console.log('Clé privée chiffrée:', encryptedKey);
 
         // Mettre à jour le streamer dans la base de données avec les deux clés
         await Streamer.findOneAndUpdate(
             { twitchId },
             { 
-                publicKey,
+                publicKey: wallet.classicAddress,
                 encryptedKey
             }
         );
@@ -202,6 +204,7 @@ app.post('/check-password', async (req, res) => {
             return res.json({ success: false, error: 'Aucune clé trouvée' });
         }
 
+        console.log('Données trouvées:');
         console.log('Clé publique stockée:', streamer.publicKey);
         console.log('Clé chiffrée stockée:', streamer.encryptedKey);
 
@@ -211,7 +214,7 @@ app.post('/check-password', async (req, res) => {
             const bytes = CryptoJS.AES.decrypt(streamer.encryptedKey, password);
             const decryptedKey = bytes.toString(CryptoJS.enc.Utf8);
             
-            console.log('Clé déchiffrée:', decryptedKey);
+            console.log('Clé déchiffrée brute:', decryptedKey);
             
             if (!decryptedKey) {
                 console.log('Déchiffrement échoué - clé vide');
@@ -226,8 +229,11 @@ app.post('/check-password', async (req, res) => {
                 console.log('Adresse publique du wallet:', wallet.classicAddress);
                 console.log('Adresse publique stockée:', streamer.publicKey);
 
+                // Vérification plus détaillée
                 if (wallet.classicAddress !== streamer.publicKey) {
-                    console.log('Les adresses publiques ne correspondent pas');
+                    console.log('Les adresses publiques ne correspondent pas:');
+                    console.log('Wallet généré:', wallet.classicAddress);
+                    console.log('Stockée:', streamer.publicKey);
                     return res.json({ success: false, error: 'Clé privée invalide' });
                 }
 
@@ -239,6 +245,7 @@ app.post('/check-password', async (req, res) => {
                 });
             } catch (error) {
                 console.error('Erreur lors de la création du wallet:', error);
+                console.error('Clé privée qui a causé l\'erreur:', decryptedKey);
                 return res.json({ success: false, error: 'Clé privée invalide' });
             }
         } catch (error) {
