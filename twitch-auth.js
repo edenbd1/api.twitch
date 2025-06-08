@@ -10,12 +10,12 @@ require('dotenv').config();
 const app = express();
 const port = 3000;
 
-// Constantes XRPL
+// XRPL Constants
 const RLUSD_CURRENCY_HEX = process.env.XRPL_RLUSD_CURRENCY_HEX;
 const RLUSD_ISSUER = process.env.XRPL_RLUSD_ISSUER;
-const INITIAL_FUNDING_XRP = 1.2; // Montant initial en XRP pour les nouveaux wallets
+const INITIAL_FUNDING_XRP = 1.2; // Initial amount in XRP for new wallets
 
-// Fonction utilitaire pour attendre la validation d'une transaction XRPL
+// Utility function to wait for XRPL transaction validation
 async function waitForValidation(client, hash) {
     return new Promise((resolve, reject) => {
         const interval = setInterval(async () => {
@@ -33,15 +33,15 @@ async function waitForValidation(client, hash) {
     });
 }
 
-// Fonction pour générer la page de bienvenue avec les clés
+// Function to generate welcome page with keys
 function generateWelcomePageHtml(displayName, publicKey, privateKey) {
     return `
         <!DOCTYPE html>
-        <html lang="fr">
+        <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Bienvenue</title>
+            <title>Welcome</title>
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -101,17 +101,17 @@ function generateWelcomePageHtml(displayName, publicKey, privateKey) {
         </head>
         <body>
             <div class="container">
-                <h1>Bienvenue!</h1>
-                <p class="welcome-message">Bienvenue ${displayName}!</p>
+                <h1>Welcome!</h1>
+                <p class="welcome-message">Welcome ${displayName}!</p>
                 
                 <div class="keys-container">
-                    <div class="key-label">Clé publique:</div>
+                    <div class="key-label">Public Key:</div>
                     <div id="publicKey" class="key-value">${publicKey || 'N/A'}</div>
-                    <div class="key-label">Clé privée:</div>
+                    <div class="key-label">Private Key:</div>
                     <div id="privateKey" class="key-value">${privateKey || 'N/A'}</div>
                 </div>
 
-                <a href="/" class="back-button">Retour à l'accueil</a>
+                <a href="/" class="back-button">Back to Home</a>
             </div>
         </body>
         </html>
@@ -124,8 +124,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // Connexion à MongoDB
 mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('Connecté à MongoDB'))
-    .catch(err => console.error('Erreur de connexion à MongoDB:', err));
+    .then(() => console.log('Connected to MongoDB'))
+    .catch(err => console.error('MongoDB connection error:', err));
 
 // Middleware pour servir les fichiers statiques
 app.use(express.static('public'));
@@ -135,19 +135,19 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Route pour démarrer l'authentification
+// Route for starting authentication
 app.get('/auth', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${process.env.TWITCH_CLIENT_ID}&redirect_uri=${process.env.REDIRECT_URI}&response_type=code&scope=user:read:email`;
     res.redirect(authUrl);
 });
 
-// Route de callback après l'authentification
+// Callback route after authentication
 app.get('/callback', async (req, res) => {
     const { code } = req.query;
     
-    let xrplClient; // Déclarer ici pour qu'il soit accessible dans le bloc finally
+    let xrplClient;
     try {
-        // Échange du code contre un access token
+        // Exchange code for access token
         const tokenResponse = await axios.post('https://id.twitch.tv/oauth2/token', null, {
             params: {
                 client_id: process.env.TWITCH_CLIENT_ID,
@@ -160,7 +160,7 @@ app.get('/callback', async (req, res) => {
 
         const accessToken = tokenResponse.data.access_token;
 
-        // Récupération des informations utilisateur Twitch
+        // Get Twitch user information
         const twitchUserResponse = await axios.get('https://api.twitch.tv/helix/users', {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -170,26 +170,26 @@ app.get('/callback', async (req, res) => {
 
         const twitchUser = twitchUserResponse.data.data[0];
 
-        // Vérifier si le streamer existe déjà
+        // Check if streamer already exists
         let streamer = await Streamer.findOne({ twitchId: twitchUser.id });
 
         if (streamer && streamer.publicKey && streamer.seed) {
-            // Cas 1: Streamer existant AVEC clés XRPL
-            console.log('Cas 1: Streamer existant trouvé avec clés XRPL. Affichage direct.');
+            // Case 1: Existing streamer WITH XRPL keys
+            console.log('Case 1: Existing streamer found with XRPL keys. Direct display.');
             res.send(generateWelcomePageHtml(
                 twitchUser.display_name,
                 streamer.publicKey,
                 streamer.seed
             ));
         } else {
-            // Cas 2: Nouveau streamer OU streamer existant SANS clés XRPL (génération et configuration)
-            console.log('Cas 2: Nouveau streamer ou streamer existant sans clés XRPL. Génération et configuration...');
+            // Case 2: New streamer OR existing streamer WITHOUT XRPL keys (generation and configuration)
+            console.log('Case 2: New streamer or existing streamer without XRPL keys. Generation and configuration...');
             try {
                 xrplClient = new xrpl.Client(process.env.XRPL_EXPLORER_URL);
                 await xrplClient.connect();
 
                 const userWallet = xrpl.Wallet.generate();
-                console.log('Wallet utilisateur généré:', userWallet.seed, userWallet.address);
+                console.log('User wallet generated:', userWallet.seed, userWallet.address);
 
                 const adminWallet = xrpl.Wallet.fromSeed(process.env.XRPL_HOT_WALLET_SEED);
                 console.log(`Admin wallet: ${adminWallet.address}`);
@@ -202,10 +202,10 @@ app.get('/callback', async (req, res) => {
                 console.log(`Admin balance: ${adminXrpBalance} XRP`);
 
                 if (parseFloat(adminXrpBalance) < INITIAL_FUNDING_XRP + 1.2) {
-                    throw new Error("Solde du wallet admin insuffisant pour le financement initial.");
+                    throw new Error("Insufficient admin wallet balance for initial funding.");
                 }
 
-                console.log(`Financement du wallet utilisateur avec ${INITIAL_FUNDING_XRP} XRP depuis le wallet admin...`);
+                console.log(`Funding user wallet with ${INITIAL_FUNDING_XRP} XRP from admin wallet...`);
                 const fundTx = await xrplClient.autofill({
                     TransactionType: "Payment",
                     Account: adminWallet.address,
@@ -214,10 +214,10 @@ app.get('/callback', async (req, res) => {
                 });
                 const fundTxSigned = adminWallet.sign(fundTx);
                 const fundTxResult = await xrplClient.submitAndWait(fundTxSigned.tx_blob);
-                console.log(`Financement transaction hash: ${fundTxResult.result.hash}`);
+                console.log(`Funding transaction hash: ${fundTxResult.result.hash}`);
                 await waitForValidation(xrplClient, fundTxResult.result.hash);
 
-                console.log(`Activation de DEFAULT_RIPPLE sur le wallet utilisateur...`);
+                console.log(`Enabling DEFAULT_RIPPLE on user wallet...`);
                 const accountSetTx = await xrplClient.autofill({
                     TransactionType: "AccountSet",
                     Account: userWallet.address,
@@ -228,14 +228,14 @@ app.get('/callback', async (req, res) => {
                 console.log(`AccountSet transaction hash: ${accountSetTxResult.result.hash}`);
                 await waitForValidation(xrplClient, accountSetTxResult.result.hash);
 
-                console.log(`Configuration de la trustline pour RLUSD...`);
+                console.log(`Setting up RLUSD trustline...`);
                 const trustSetTx = await xrplClient.autofill({
                     TransactionType: "TrustSet",
                     Account: userWallet.address,
                     LimitAmount: {
                         currency: RLUSD_CURRENCY_HEX,
                         issuer: RLUSD_ISSUER,
-                        value: "1000000" // Limite élevée pour ne pas restreindre les paiements
+                        value: "1000000" // High limit to not restrict payments
                     }
                 });
                 const trustSetTxSigned = userWallet.sign(trustSetTx);
@@ -253,17 +253,17 @@ app.get('/callback', async (req, res) => {
                 };
 
                 if (streamer) {
-                    // Mise à jour de l'utilisateur existant
+                    // Update existing user
                     streamer = await Streamer.findOneAndUpdate(
                         { twitchId: twitchUser.id },
                         { $set: streamerData },
                         { new: true }
                     );
-                    console.log('Streamer existant mis à jour avec les clés XRPL:', streamer);
+                    console.log('Existing streamer updated with XRPL keys:', streamer);
                 } else {
-                    // Création d'un nouvel utilisateur
+                    // Create new user
                     streamer = await Streamer.create(streamerData);
-                    console.log('Nouveau streamer créé avec les clés XRPL:', streamer);
+                    console.log('New streamer created with XRPL keys:', streamer);
                 }
 
                 res.send(generateWelcomePageHtml(
@@ -273,14 +273,14 @@ app.get('/callback', async (req, res) => {
                 ));
 
             } catch (error) {
-                console.error('Erreur lors de la génération/configuration du wallet XRPL:', error.message);
+                console.error('Error during XRPL wallet generation/configuration:', error.message);
                 res.status(500).send(`
                     <!DOCTYPE html>
-                    <html lang="fr">
+                    <html lang="en">
                     <head>
                         <meta charset="UTF-8">
                         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>Erreur</title>
+                        <title>Error</title>
                         <style>
                             body {
                                 font-family: Arial, sans-serif;
@@ -329,12 +329,12 @@ app.get('/callback', async (req, res) => {
                     </head>
                     <body>
                         <div class="container">
-                            <h1>Erreur</h1>
-                            <p class="error-message">Une erreur est survenue lors de la configuration du wallet XRPL.</p>
+                            <h1>Error</h1>
+                            <p class="error-message">An error occurred during XRPL wallet configuration.</p>
                             <div class="error-details">
                                 <pre>${JSON.stringify(error.message, null, 2)}</pre>
                             </div>
-                            <a href="/" class="back-button">Retour à l'accueil</a>
+                            <a href="/" class="back-button">Back to Home</a>
                         </div>
                     </body>
                     </html>
@@ -342,19 +342,19 @@ app.get('/callback', async (req, res) => {
             } finally {
                 if (xrplClient && xrplClient.isConnected()) {
                     await xrplClient.disconnect();
-                    console.log('Client XRPL déconnecté.');
+                    console.log('XRPL client disconnected.');
                 }
             }
         }
     } catch (error) {
-        console.error('Erreur détaillée (callback route):', error.response ? error.response.data : error.message);
+        console.error('Detailed error (callback route):', error.response ? error.response.data : error.message);
         res.status(500).send(`
             <!DOCTYPE html>
-            <html lang="fr">
+            <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Erreur</title>
+                <title>Error</title>
                 <style>
                     body {
                         font-family: Arial, sans-serif;
@@ -403,12 +403,12 @@ app.get('/callback', async (req, res) => {
             </head>
             <body>
                 <div class="container">
-                    <h1>Erreur</h1>
-                    <p class="error-message">Une erreur est survenue lors de l'authentification.</p>
+                    <h1>Error</h1>
+                    <p class="error-message">An error occurred during authentication.</p>
                     <div class="error-details">
                         <pre>${JSON.stringify(error.response ? error.response.data : error.message, null, 2)}</pre>
                     </div>
-                    <a href="/" class="back-button">Retour à l'accueil</a>
+                    <a href="/" class="back-button">Back to Home</a>
                 </div>
             </body>
             </html>
@@ -416,11 +416,11 @@ app.get('/callback', async (req, res) => {
     } finally {
         if (xrplClient && xrplClient.isConnected()) {
             await xrplClient.disconnect();
-            console.log('Client XRPL déconnecté (dans le finally de callback).');
+            console.log('XRPL client disconnected (in callback finally).');
         }
     }
 });
 
 app.listen(port, () => {
-    console.log(`Serveur démarré sur http://localhost:${port}`);
+    console.log(`Server started on http://localhost:${port}`);
 }); 
